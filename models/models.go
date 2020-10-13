@@ -26,7 +26,6 @@ type Post struct {
 	PostedBy uint
 	Comment []Comment `gorm:"constraint:OnDelete:CASCADE;foreignKey:PostID"`
 	Reaction []Reaction `gorm:"contraints:OnDelete:CASCADE;forienKey:PostID"`
-
 }
 
 type Comment struct {

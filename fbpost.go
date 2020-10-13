@@ -18,6 +18,7 @@ func main() {
     e.POST("/users", createUser)
     e.GET("/users", getUser)
     e.DELETE("/users", deleteUser)
+    e.DELETE("/post", deletePost)
     e.PUT("/users", updateUser)
     e.POST("/login", loginUser)
     r := e.Group("/restricted")
@@ -25,7 +26,7 @@ func main() {
     e.POST("/post", createPost)
     e.POST("/comment", createComment)
     e.POST("/reply", createReply)
-    e.GET("/post", getPosts)
+    //e.GET("/post", getPost)
     e.GET("/user/posts", getUserPosts)
     e.POST("/post/react", reactPost)
     e.GET("/reactions", getReactions)
@@ -135,11 +136,17 @@ type Post struct {
     PostedAt time.Time `json:"posted_at"`
     UserId uint `json:"user_id"`
 }
+type PostWithId struct{
+    Content string `json:"content"`
+    PostedAt time.Time `json:"posted_at"`
+    UserId uint `json:"user_id"`
+    PostId uint `json:"post_id"`
+}
 func createPost(c echo.Context) error {
     
     // user := c.Get("user").(*jwt.Token)
     // claims := user.Claims.(jwt.MapClaims)
-    // // user_id := uint(claims["id"].(float64))
+    // user_id := uint(claims["id"].(float64))
     
     var post_details Post
     data_err := json.NewDecoder(c.Request().Body).Decode(&post_details)
@@ -161,26 +168,26 @@ func createPost(c echo.Context) error {
     db.Save(&user_data)
     return c.JSON(http.StatusOK, post)
 }
-type PostId struct{
-    PostId uint `json:post_id`
-}
-
 func deletePost(c echo.Context) error {
     user := c.Get("user").(*jwt.Token)
     claims := user.Claims.(jwt.MapClaims)
     user_id := uint(claims["id"].(float64))
+    var post PostWithId
+    data_err := json.NewDecoder(c.Request().Body).Decode(&post)
+    if data_err != nil{
+        panic("Invalid input")
+    }
     db, err := gorm.Open(sqlite.Open("db.sqlite3"), &gorm.Config{})
     if err != nil {
         panic("error in connecting database")
     }
-    var to_be_deleted_post PostId
-    var user_id_of_post User
-    post_details := db.First(&to_be_deleted_post)
-    if post_details.PostedBy == user_id{
+    var to_be_deleted_post models.Post
+    db.First(&to_be_deleted_post, post.PostId)
+    if to_be_deleted_post.PostedBy == user_id{
         panic("Invalid Input")
     }
-    db.Delete(&Post{}, to_be_deleted_post.PostId)
-    return c.String(http.StatusOK, "successfully created")
+    db.Delete(&Post{}, post.PostId)
+    return c.String(http.StatusOK, "successfully deleted")
 
 }
 
@@ -244,7 +251,6 @@ type User struct {
 type PostDetails struct {
 	PostId        int           `json:"post_id"`
 	PostedBy      User          `json:"posted_by"`
-	PostedAt      string        `json:"posted_at"`
 	PostContent   string        `json:"post_content"`
 	Reactions     Reactions     `json:"reactions"`
 	Comments      []CommentDict `json:"comments"`
@@ -272,14 +278,26 @@ type ReplyDict struct {
 	RepliedAt    string `json:"commented_at"`
 	ReplyContent string `json:"comment_content"`
 }
-func getPosts(c echo.Context) error {
+func getPost(c echo.Context) error {
+    var required_post uint
+    data_err := json.NewDecoder(c.Request().Body).Decode(&required_post)
     db, err := gorm.Open(sqlite.Open("db.sqlite3"), &gorm.Config{})
     if err != nil {
         panic("failed to connect database")
     }
-    var posts []models.Post
-    // db.Table("posts").Joins("left join comments on comments.post_id = posts.id").Scan(&posts)
-    db.Joins("Comment").Find(&posts) 
+    var post models.Post
+    var comments []model.Comment
+    var reactions []model.Reaction
+    db.First(&post, required_post)
+    db.Find(&comments,required_post)
+    db.First(&post, required_post)
+    var post_dict PostDetails
+    post_dict := PostDetails{
+        PostId : post.Id,
+        Content : post.
+    }
+
+
     return c.JSON(http.StatusOK, posts)
 }
 func getUserPosts(c echo.Context) error {
