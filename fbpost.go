@@ -24,10 +24,10 @@ func main() {
     e.POST("/login", loginUser)
     r := e.Group("/restricted")
     r.Use(middleware.JWT([]byte("secret")))
-    e.POST("/post/:id", createPost)
+    e.POST("/post", createPost)
     e.POST("/comment", createComment)
     e.POST("/reply", createReply)
-    e.GET("/post", getPost)
+    e.GET("/post/:id", getPost)
     e.GET("/user/posts", getUserPosts)
     e.POST("/post/react", reactPost)
     e.GET("/reactions", getReactions)
@@ -524,4 +524,3 @@ func getReactions(c echo.Context) error {
     db.Model(&models.Reaction{}).Select("reaction_type, count(reaction_type) as reaction_count").Group("reaction_type").Find(&reactions)
     return c.JSON(http.StatusOK, reactions)
 }
-
