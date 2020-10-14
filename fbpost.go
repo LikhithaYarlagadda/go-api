@@ -11,6 +11,7 @@ import (
     "time"
     "github.com/labstack/echo/middleware"
     "./models"
+    "strconv"
 )
 func main() {
     e := echo.New()
@@ -23,10 +24,10 @@ func main() {
     e.POST("/login", loginUser)
     r := e.Group("/restricted")
     r.Use(middleware.JWT([]byte("secret")))
-    e.POST("/post", createPost)
+    e.POST("/post/:id", createPost)
     e.POST("/comment", createComment)
     e.POST("/reply", createReply)
-    //e.GET("/post", getPost)
+    e.GET("/post", getPost)
     e.GET("/user/posts", getUserPosts)
     e.POST("/post/react", reactPost)
     e.GET("/reactions", getReactions)
@@ -194,11 +195,12 @@ func deletePost(c echo.Context) error {
 type Comment struct {
     Content string `json:"content"`
     PostId uint `json:"post_id"`
+    UserId uint `json:"user_id"`
 }
 func createComment(c echo.Context) error {
-    user := c.Get("user").(*jwt.Token)
-    claims := user.Claims.(jwt.MapClaims)
-    user_id := uint(claims["id"].(float64))
+    // user := c.Get("user").(*jwt.Token)
+    // claims := user.Claims.(jwt.MapClaims)
+    // user_id := uint(claims["id"].(float64))
     var comment_details Comment
     data_err := json.NewDecoder(c.Request().Body).Decode(&comment_details)
     if data_err != nil{
@@ -208,7 +210,7 @@ func createComment(c echo.Context) error {
     if err != nil {
         panic("error in connecting database")
     }
-    comment := &models.Comment{Content: comment_details.Content, CommentedBy: user_id, PostID: comment_details.PostId}
+    comment := &models.Comment{Content: comment_details.Content, CommentedBy: comment_details.UserId, PostID: comment_details.PostId}
     db.AutoMigrate(&models.Comment{})
     db.Create(&comment)
     return c.JSON(http.StatusOK, comment)
@@ -249,68 +251,190 @@ type User struct {
 }
 
 type PostDetails struct {
-	PostId        int           `json:"post_id"`
+	PostId        uint           `json:"post_id"`
 	PostedBy      User          `json:"posted_by"`
 	PostContent   string        `json:"post_content"`
 	Reactions     Reactions     `json:"reactions"`
 	Comments      []CommentDict `json:"comments"`
-	CommentsCount int64         `json:"comments_count"`
+	CommentsCount int         `json:"comments_count"`
 }
 
 type Reactions struct {
-	Count     int64    `json:"count"`
+	Count     int    `json:"count"`
 	Reactions []string `json:"reactions"`
 }
 
 type CommentDict struct {
-	Id             int         `json:"comment_id"`
+	Id             uint         `json:"comment_id"`
 	CommentedBy    User        `json:"commenter"`
-	CommentedAt    string      `json:"commented_at"`
 	CommentContent string      `json:"comment_content"`
-	ReactionsDict  Reactions   `json:"reactions"`
 	Replies        []ReplyDict `json:"replies"`
-	RepliesCount   int64       `json:"replies_count"`
+	RepliesCount   int       `json:"replies_count"`
 }
 
 type ReplyDict struct {
-	Id           int64  `json:"comment_id"`
+	Id           uint  `json:"comment_id"`
 	RepliedBy    User   `json:"commenter"`
-	RepliedAt    string `json:"commented_at"`
 	ReplyContent string `json:"comment_content"`
 }
 func getPost(c echo.Context) error {
-    var required_post uint
-    data_err := json.NewDecoder(c.Request().Body).Decode(&required_post)
+    required_post_id := c.Param("id")
+    required_post, err := strconv.ParseUint(required_post_id, 10,32)
+	if err != nil {
+		panic("invalid input")
+	}
     db, err := gorm.Open(sqlite.Open("db.sqlite3"), &gorm.Config{})
     if err != nil {
         panic("failed to connect database")
     }
     var post models.Post
-    var comments []model.Comment
-    var reactions []model.Reaction
+    var comments []models.Comment
+    var reactions_for_post []models.Reaction
+    var replies []models.Comment
+    var user models.User
+    var user_of_reply models.User
+    var ReactionsList [] string
+    var RepliesList []ReplyDict
+    var CommentsList []CommentDict
+
+
     db.First(&post, required_post)
+    db.First(&user, post.PostedBy)
     db.Find(&comments,required_post)
-    db.First(&post, required_post)
-    var post_dict PostDetails
-    post_dict := PostDetails{
-        PostId : post.Id,
-        Content : post.
+    db.Find(&reactions_for_post, required_post)
+
+    posted_by := User{
+        UserId : post.PostedBy,
+        Username : user.Username,
     }
+    for i := 0; i < len(reactions_for_post); i++ {
+		ReactionsList = append(ReactionsList, reactions_for_post[i].ReactionType)
+	}
+    reactions_list_for_post := Reactions{
+        Count : len(reactions_for_post),
+        Reactions : ReactionsList,
 
-
-    return c.JSON(http.StatusOK, posts)
+    }
+    for i:= 0; i<len(comments);i++{
+        db.Find(&replies, comments[i].ID)
+        for j :=0;j<len(replies);j++{
+            db.Find(&user_of_reply, replies[i].CommentedBy)
+            replies_of_comment_dict := ReplyDict{
+                Id : replies[i].ID,
+                ReplyContent : replies[i].Content,
+                RepliedBy : User{
+                    UserId : replies[i].CommentedBy,
+                    Username : user_of_reply.Username,
+                },
+            }
+            RepliesList = append(RepliesList,replies_of_comment_dict)
+        }
+        db.Find(&user, comments[i].CommentedBy)
+        comment_dict := CommentDict{
+            Id : comments[i].ID,
+            CommentedBy : User{
+                UserId : comments[i].CommentedBy,
+                Username : user.Username,
+            },
+            CommentContent : comments[i].Content,
+            Replies : RepliesList,
+            RepliesCount : len(replies),
+        }
+        CommentsList = append(CommentsList,comment_dict)
+        
+    }
+    post_dict := PostDetails{
+        PostId : uint(required_post),
+        PostContent : post.Content,
+        PostedBy : posted_by,
+        Reactions : reactions_list_for_post,
+        Comments : CommentsList,
+        CommentsCount : len(comments),
+    }
+    return c.JSON(http.StatusOK, post_dict)
 }
+
+
+
 func getUserPosts(c echo.Context) error {
     user := c.Get("user").(*jwt.Token)
     claims := user.Claims.(jwt.MapClaims)
     user_id := uint(claims["id"].(float64))
+    var PostList []PostDetails
     db, err := gorm.Open(sqlite.Open("db.sqlite3"), &gorm.Config{})
     if err != nil {
         panic("eroor in connecting database")
     }
     var posts []models.Post
     db.Where("posted_by = ?", user_id).Find(&posts)
-    return c.JSON(http.StatusOK, posts)
+    for i:= 0;i<len(posts);i++{
+        var post models.Post
+        var comments []models.Comment
+        var reactions_for_post []models.Reaction
+        var replies []models.Comment
+        var user models.User
+        var user_of_reply models.User
+        var ReactionsList [] string
+        var RepliesList []ReplyDict
+        var CommentsList []CommentDict
+
+
+        db.First(&post, posts[i])
+        db.First(&user, post.PostedBy)
+        db.Find(&comments,posts[i])
+        db.Find(&reactions_for_post, posts[i])
+
+        posted_by := User{
+            UserId : post.PostedBy,
+            Username : user.Username,
+        }
+        for i := 0; i < len(reactions_for_post); i++ {
+            ReactionsList = append(ReactionsList, reactions_for_post[i].ReactionType)
+        }
+        reactions_list_for_post := Reactions{
+            Count : len(reactions_for_post),
+            Reactions : ReactionsList,
+
+        }
+        for i:= 0; i<len(comments);i++{
+            db.Find(&replies, comments[i].ID)
+            for j :=0;j<len(replies);j++{
+                db.Find(&user_of_reply, replies[i].CommentedBy)
+                replies_of_comment_dict := ReplyDict{
+                    Id : replies[i].ID,
+                    ReplyContent : replies[i].Content,
+                    RepliedBy : User{
+                        UserId : replies[i].CommentedBy,
+                        Username : user_of_reply.Username,
+                    },
+                }
+                RepliesList = append(RepliesList,replies_of_comment_dict)
+            }
+            db.Find(&user, comments[i].CommentedBy)
+            comment_dict := CommentDict{
+                Id : comments[i].ID,
+                CommentedBy : User{
+                    UserId : comments[i].CommentedBy,
+                    Username : user.Username,
+                },
+                CommentContent : comments[i].Content,
+                Replies : RepliesList,
+                RepliesCount : len(replies),
+            }
+            CommentsList = append(CommentsList,comment_dict)
+            
+        }
+        post_dict := PostDetails{
+            PostId : posts[i].ID,
+            PostContent : post.Content,
+            PostedBy : posted_by,
+            Reactions : reactions_list_for_post,
+            Comments : CommentsList,
+            CommentsCount : len(comments),
+        }
+        PostList = append(PostList,post_dict)
+    }
+    return c.JSON(http.StatusOK, PostList)
 }
 type Reaction struct {
     PostId uint `json:"post_id"`
@@ -400,3 +524,4 @@ func getReactions(c echo.Context) error {
     db.Model(&models.Reaction{}).Select("reaction_type, count(reaction_type) as reaction_count").Group("reaction_type").Find(&reactions)
     return c.JSON(http.StatusOK, reactions)
 }
+

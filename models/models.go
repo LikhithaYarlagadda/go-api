@@ -22,6 +22,7 @@ type User struct{
 
 type Post struct {
 	gorm.Model
+	ID uint `gorm:"primaryKey"`
 	Content string
 	PostedBy uint
 	Comment []Comment `gorm:"constraint:OnDelete:CASCADE;foreignKey:PostID"`
@@ -30,6 +31,7 @@ type Post struct {
 
 type Comment struct {
 	gorm.Model
+	ID uint `gorm:"primaryKey"`
 	Content string
 	CommentedBy uint
 	PostID uint
@@ -40,6 +42,7 @@ type Comment struct {
 
 type Reaction struct {
 	gorm.Model
+	ID uint `gorm:"primaryKey"`
 	PostID uint
 	CommentID uint
 	ReactionType string
