@@ -52,7 +52,7 @@ func createUser(c echo.Context) error  {
     user_data := &models.User{}
     data_err := json.NewDecoder(c.Request().Body).Decode(&user_data)
     if data_err != nil {
-        panic("wrong data")
+        panic("wrong info")
     }
     
     db.Create(&user_data)
